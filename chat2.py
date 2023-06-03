@@ -7,7 +7,10 @@ import re
 from time import time,sleep
 from uuid import uuid4
 import datetime
-import pinecone
+from pymilvus import Milvus, DataType
+
+# Assuming milvus_helper is your helper module with necessary methods.
+import milvus_helper
 
 
 def open_file(filepath):
@@ -83,18 +86,17 @@ def load_conversation(results):
     return '\n'.join(messages).strip()
 
 
+
 if __name__ == '__main__':
     convo_length = 30
     openai.api_key = open_file('key_openai.txt')
-    pinecone.init(api_key=open_file('key_pinecone.txt'), environment='us-east1-gcp')
-    vdb = pinecone.Index("raven-mvp")
+    milvus_helper.init(host='localhost', port='19530', collection_name='raven-mvp')
     while True:
-        #### get user input, save it, vectorize it, save to pinecone
+        #### get user input, save it, vectorize it, save to milvus
         payload = list()
         a = input('\n\nUSER: ')
         timestamp = time()
         timestring = timestamp_to_datetime(timestamp)
-        #message = '%s: %s - %s' % ('USER', timestring, a)
         message = a
         vector = gpt3_embedding(message)
         unique_id = str(uuid4())
@@ -102,19 +104,20 @@ if __name__ == '__main__':
         save_json('nexus/%s.json' % unique_id, metadata)
         payload.append((unique_id, vector))
         #### search for relevant messages, and generate a response
-        results = vdb.query(vector=vector, top_k=convo_length)
-        conversation = load_conversation(results)  # results should be a DICT with 'matches' which is a LIST of DICTS, with 'id'
+        # Assuming milvus_helper has a similar query method as Pinecone
+        results = milvus_helper.query('raven-mvp', vector, top_k=convo_length)
+        conversation = load_conversation(results)
         prompt = open_file('prompt_response.txt').replace('<<CONVERSATION>>', conversation).replace('<<MESSAGE>>', a)
         #### generate response, vectorize, save, etc
         output = gpt3_completion(prompt)
         timestamp = time()
         timestring = timestamp_to_datetime(timestamp)
-        #message = '%s: %s - %s' % ('RAVEN', timestring, output)
         message = output
         vector = gpt3_embedding(message)
         unique_id = str(uuid4())
         metadata = {'speaker': 'RAVEN', 'time': timestamp, 'message': message, 'timestring': timestring, 'uuid': unique_id}
         save_json('nexus/%s.json' % unique_id, metadata)
         payload.append((unique_id, vector))
-        vdb.upsert(payload)
-        print('\n\nRAVEN: %s' % output) 
+        # Assuming milvus_helper has an upsert method.
+        milvus_helper.upsert('raven-mvp', payload)
+        print('\n\nRAVEN: %s' % output)
